@@ -6,24 +6,6 @@ import math
 import cv2
 import numpy as np
 from PIL import Image
-
-
-__all__ = [
-    "PARTICLE_COLOR_TOLERANCE",
-    "annotate_particles",
-    "detect_horizontal_scale_bar",
-    "draw_particle_labels",
-    "evaluate_custom_formula",
-    "find_particles",
-    "length_to_micrometers",
-    "particle_at_point",
-    "particle_formula_variables",
-    "particle_measurements",
-    "segment_particles",
-    "selected_particle_image",
-]
-
-
 PARTICLE_COLOR_TOLERANCE = 30
 FORMULA_VARIABLES = {"A", "P", "L", "S", "C", "AR"}
 FORMULA_FUNCTIONS = {
@@ -383,18 +365,11 @@ def selected_particle_image(image, particles, particle_id):
 
 
 def particle_at_point(particles, x, y):
-    """Return the one-based ID of the smallest particle containing ``(x, y)``.
-
-    This mirrors the desktop selection rule: contours are tested in original-image
-    coordinates, and overlap is resolved by choosing the matching particle with the
-    smallest measured area. ``None`` is returned when the point is outside every
-    detected contour.
-    """
-    image_point = (float(x), float(y))
-    matching_particles = []
-    for particle_id, particle in enumerate(particles, start=1):
-        if cv2.pointPolygonTest(particle["contour"], image_point, False) >= 0:
-            matching_particles.append((particle["area"], particle_id))
-
+    """Return the one-based ID of the smallest particle containing a point."""
+    matching_particles = (
+        (particle["area"], particle_id)
+        for particle_id, particle in enumerate(particles, start=1)
+        if cv2.pointPolygonTest(particle["contour"], (float(x), float(y)), False) >= 0
+    )
     smallest_match = min(matching_particles, default=None)
     return smallest_match[1] if smallest_match is not None else None
