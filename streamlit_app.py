@@ -825,11 +825,7 @@ def render_batch_analysis(minimum_area: int) -> None:
             f"Average circularity: {average_circularity:.3f} · "
             f"Average aspect ratio: {average_aspect_ratio:.3f}"
         )
-    st.image(
-        selected_result["annotated_image"],
-        caption=f"Annotated image: {selected_result['image_name']}",
-        width="stretch",
-    )
+    
     if selected_result["formula_errors"]:
         st.warning(
             "Some custom formula values are blank:\n\n"
