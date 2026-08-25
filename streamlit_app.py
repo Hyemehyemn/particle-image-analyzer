@@ -11,19 +11,21 @@ import math
 from pathlib import Path
 import zipfile
 
-import cv2
-import numpy as np
 import pandas as pd
 from PIL import Image, ImageDraw
 import streamlit as st
 from streamlit_cropper import st_cropper
 
-from image_analyzer import (
+from analyzer_core import (
+    annotate_particles,
     detect_horizontal_scale_bar,
     evaluate_custom_formula,
     find_particles,
     length_to_micrometers,
+    particle_formula_variables,
+    particle_measurements,
     segment_particles,
+    selected_particle_image,
 )
 
 
@@ -79,23 +81,6 @@ def uploaded_image(uploaded_file) -> tuple[Image.Image, bytes]:
     return image, data
 
 
-def annotate_particles(image: Image.Image, particles: list[dict]) -> Image.Image:
-    annotated = np.asarray(image, dtype=np.uint8).copy()
-    for particle_id, particle in enumerate(particles, start=1):
-        cv2.drawContours(annotated, [particle["contour"]], -1, (0, 255, 0), 2)
-        center_x, center_y = (int(value) for value in particle["center"])
-        cv2.putText(
-            annotated,
-            str(particle_id),
-            (center_x, center_y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (255, 255, 0),
-            2,
-            cv2.LINE_AA,
-        )
-    return Image.fromarray(annotated, mode="RGB")
-
 
 def image_png_bytes(image: Image.Image) -> bytes:
     output = io.BytesIO()
@@ -118,24 +103,17 @@ def measurement_row(
     formulas: list[dict],
     formula_errors: set[str] | None = None,
 ) -> dict:
-    scale = length_scale or 1.0
+    measurements = particle_measurements(particle, length_scale)
     row = {
         "Particle ID": particle_id,
-        "Area": particle["area"] * scale**2,
-        "Perimeter": particle["perimeter"] * scale,
-        "Major axis": particle["major_axis"] * scale,
-        "Minor axis": particle["minor_axis"] * scale,
-        "Circularity": particle["circularity"],
-        "Aspect ratio": particle["aspect_ratio"],
+        "Area": measurements["area"],
+        "Perimeter": measurements["perimeter"],
+        "Major axis": measurements["major_axis"],
+        "Minor axis": measurements["minor_axis"],
+        "Circularity": measurements["circularity"],
+        "Aspect ratio": measurements["aspect_ratio"],
     }
-    variables = {
-        "A": row["Area"],
-        "P": row["Perimeter"],
-        "L": row["Major axis"],
-        "S": row["Minor axis"],
-        "C": row["Circularity"],
-        "AR": row["Aspect ratio"],
-    }
+    variables = particle_formula_variables(particle, length_scale)
     for formula in formulas:
         try:
             row[formula["name"]] = evaluate_custom_formula(
@@ -171,18 +149,6 @@ def analyze_image(
         "formula_errors": sorted(formula_errors),
     }
 
-
-def selected_particle_image(
-    image: Image.Image, particles: list[dict], particle_id: int | None
-) -> Image.Image:
-    """Render the desktop-style labels plus a strong selected-particle highlight."""
-    annotated = np.asarray(annotate_particles(image, particles), dtype=np.uint8).copy()
-    if particle_id is not None and 1 <= particle_id <= len(particles):
-        particle = particles[particle_id - 1]
-        cv2.drawContours(annotated, [particle["contour"]], -1, (255, 0, 255), 4)
-        center = tuple(int(value) for value in particle["center"])
-        cv2.circle(annotated, center, 8, (255, 255, 0), 3)
-    return Image.fromarray(annotated, mode="RGB")
 
 
 def display_headers(calibrated: bool, formulas: list[dict]) -> dict[str, str]:
