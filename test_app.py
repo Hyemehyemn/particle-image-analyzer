@@ -1,7 +1,18 @@
 import streamlit as st
-from streamlit_cropper import st_cropper
-from streamlit_image_coordinates import streamlit_image_coordinates
+
+from streamlit_app import (
+    initialize_state,
+    render_formula_panel,
+    render_decimal_panel,
+)
+
+st.set_page_config(page_title="Test", layout="wide")
+
+initialize_state()
 
 st.title("Test")
-st.write("App is running")
-st.write("Both components imported successfully")
+
+render_formula_panel()
+render_decimal_panel()
+
+st.write("Reached the end")
