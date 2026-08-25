@@ -479,7 +479,14 @@ def annotate_particles(image, particles):
 
 
 def selected_particle_image(image, particles, particle_id):
-    return image
+    """Annotate all particles and strongly highlight one selected particle."""
+    annotated = np.asarray(annotate_particles(image, particles), dtype=np.uint8).copy()
+    if particle_id is not None and 1 <= particle_id <= len(particles):
+        particle = particles[particle_id - 1]
+        cv2.drawContours(annotated, [particle["contour"]], -1, (255, 0, 255), 4)
+        center = tuple(int(value) for value in particle["center"])
+        cv2.circle(annotated, center, 8, (255, 255, 0), 3)
+    return Image.fromarray(annotated, mode="RGB")
 
 
 def particle_at_point(particles, x, y):
