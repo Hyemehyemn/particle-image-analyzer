@@ -2,34 +2,18 @@ import streamlit as st
 from PIL import Image
 import io
 
-from streamlit_app import analyze_image
-from analyzer_core import selected_particle_image
+from analyzer_core import segment_particles, find_particles
 
-st.title("Selected particle image test")
+st.title("Memory test")
 
 uploaded = st.file_uploader("Upload image")
 
 if uploaded is not None:
-    data = uploaded.getvalue()
-    image = Image.open(io.BytesIO(data)).convert("RGB")
+    image = Image.open(io.BytesIO(uploaded.getvalue())).convert("RGB")
 
     if st.button("Analyze"):
-        result = analyze_image(
-            image=image,
-            minimum_area=20,
-            length_scale=None,
-            formulas=[],
-        )
+        mask = segment_particles(image)
+        particles = find_particles(mask, 20)
 
-        st.write("Analysis finished")
-        st.write("Particles:", result["particle_count"])
-
-        display_image = selected_particle_image(
-            image,
-            result["particles"],
-            None
-        )
-
-        st.write("Selected particle image finished")
-        st.image(display_image)
-        
+        st.write("Particles:", len(particles))
+        st.write("Finished")
