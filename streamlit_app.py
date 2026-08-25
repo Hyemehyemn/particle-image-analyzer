@@ -909,7 +909,7 @@ def main() -> None:
         "Particle segmentation, calibrated shape measurements, custom formulas, and batch export"
     )
     minimum_area = st.sidebar.number_input(
-        "Minimum particle area (pixels)", min_value=1, value=20, step=1
+        "Minimum particle area (pixels)", min_value=1, value=100, step=1
     )
     st.sidebar.info(
         "All calculations and CSV exports retain full precision. Decimal settings affect table display only."
