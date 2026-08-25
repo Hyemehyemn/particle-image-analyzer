@@ -2,9 +2,9 @@ import streamlit as st
 from PIL import Image
 import io
 
-from analyzer_core import segment_particles
+from analyzer_core import segment_particles, find_particles
 
-st.title("Segmentation test")
+st.title("Particle finding test")
 
 uploaded = st.file_uploader("Upload image")
 
@@ -14,7 +14,9 @@ if uploaded is not None:
 
     st.image(image)
 
-    if st.button("Test segmentation"):
-        st.write("Starting segmentation...")
+    if st.button("Test find particles"):
+        st.write("Starting...")
         mask = segment_particles(image)
-        st.write("Segmentation finished")
+        particles = find_particles(mask, 20)
+        st.write("Finished")
+        st.write("Particles found:", len(particles))
