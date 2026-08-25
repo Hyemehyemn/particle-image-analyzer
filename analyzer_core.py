@@ -362,3 +362,14 @@ def selected_particle_image(image, particles, particle_id):
         center = tuple(int(value) for value in particle["center"])
         cv2.circle(annotated, center, 8, (255, 255, 0), 3)
     return Image.fromarray(annotated, mode="RGB")
+
+
+def particle_at_point(particles, x, y):
+    """Return the one-based ID of the smallest particle containing a point."""
+    matching_particles = (
+        (particle["area"], particle_id)
+        for particle_id, particle in enumerate(particles, start=1)
+        if cv2.pointPolygonTest(particle["contour"], (float(x), float(y)), False) >= 0
+    )
+    smallest_match = min(matching_particles, default=None)
+    return smallest_match[1] if smallest_match is not None else None
