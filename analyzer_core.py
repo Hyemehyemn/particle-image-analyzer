@@ -479,48 +479,7 @@ def annotate_particles(image, particles):
 
 
 def selected_particle_image(image, particles, particle_id):
-    """Annotate all particles and strongly highlight one selected particle."""
-
-    annotated = annotate_particles(image, particles)
-
-    # Nothing selected: return immediately.
-    # Avoid making another full-size copy of the image.
-    if particle_id is None:
-        return annotated
-
-    if 1 <= particle_id <= len(particles):
-        particle = particles[particle_id - 1]
-
-        draw = ImageDraw.Draw(annotated)
-
-        contour = particle["contour"].reshape(-1, 2)
-        points = [(int(x), int(y)) for x, y in contour]
-
-        if len(points) >= 2:
-            draw.line(
-                points + [points[0]],
-                fill=(255, 0, 255),
-                width=4,
-            )
-
-        center_x, center_y = (
-            int(particle["center"][0]),
-            int(particle["center"][1]),
-        )
-
-        radius = 8
-        draw.ellipse(
-            (
-                center_x - radius,
-                center_y - radius,
-                center_x + radius,
-                center_y + radius,
-            ),
-            outline=(255, 255, 0),
-            width=3,
-        )
-
-    return annotated
+    return image
 
 
 def particle_at_point(particles, x, y):
