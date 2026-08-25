@@ -6,6 +6,25 @@ import math
 import cv2
 import numpy as np
 from PIL import Image
+
+
+__all__ = [
+    "PARTICLE_COLOR_TOLERANCE",
+    "annotate_particles",
+    "detect_horizontal_scale_bar",
+    "detect_horizontal_scale_bar_safe",
+    "draw_particle_labels",
+    "evaluate_custom_formula",
+    "find_particles",
+    "length_to_micrometers",
+    "particle_at_point",
+    "particle_formula_variables",
+    "particle_measurements",
+    "segment_particles",
+    "selected_particle_image",
+]
+
+
 PARTICLE_COLOR_TOLERANCE = 30
 FORMULA_VARIABLES = {"A", "P", "L", "S", "C", "AR"}
 FORMULA_FUNCTIONS = {
@@ -91,34 +110,79 @@ def evaluate_custom_formula(expression, variables):
     return float(evaluate(tree))
 
 
+def _validated_scale_detection_rgb(image):
+    """Return a bounded contiguous RGB array suitable for native OpenCV calls."""
+    if image is None or not hasattr(image, "size"):
+        raise ValueError("Scale-bar ROI is missing or is not an image")
+    width, height = image.size
+    if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
+        raise ValueError("Scale-bar ROI has invalid dimensions")
+    if width < 10 or height < 10:
+        raise ValueError("Scale-bar ROI must be at least 10 × 10 pixels")
+    if width * height > 4_000_000:
+        raise ValueError(
+            "Scale-bar ROI is too large for safe detection. "
+            "Crop more tightly around the scale bar (maximum 4,000,000 pixels)."
+        )
+
+    try:
+        rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    except (MemoryError, OSError, ValueError) as error:
+        raise ValueError(f"Could not prepare the scale-bar ROI: {error}") from error
+    if rgb.size == 0 or rgb.ndim != 3 or rgb.shape != (height, width, 3):
+        raise ValueError("Scale-bar ROI contains no valid RGB pixel data")
+    return np.ascontiguousarray(rgb)
+
+
 def detect_horizontal_scale_bar(image):
     """Detect a bracket scale bar: horizontal line with two vertical ends."""
-    gray = cv2.cvtColor(np.asarray(image.convert("RGB")), cv2.COLOR_RGB2GRAY)
-    height, width = gray.shape
-    if width < 10 or height < 10:
-        return None
+    rgb = _validated_scale_detection_rgb(image)
+    height, width = rgb.shape[:2]
 
-    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-    median = float(np.median(blurred))
-    lower = max(0, int(0.66 * median))
-    upper = min(255, max(lower + 1, int(1.33 * median)))
-    edges = cv2.Canny(blurred, lower, upper)
-    minimum_horizontal = max(8, int(round(width * 0.10)))
-    minimum_vertical = max(4, int(round(height * 0.04)))
-    lines = cv2.HoughLinesP(
-        edges,
-        1,
-        np.pi / 180,
-        threshold=max(6, min(minimum_horizontal, minimum_vertical)),
-        minLineLength=min(minimum_horizontal, minimum_vertical),
-        maxLineGap=max(2, int(round(min(width, height) * 0.02))),
-    )
+    try:
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        if gray is None or gray.size == 0:
+            raise ValueError("OpenCV produced an empty grayscale ROI")
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+        median = float(np.median(blurred))
+        if not math.isfinite(median):
+            raise ValueError("Scale-bar ROI has invalid pixel values")
+        lower = max(0, int(0.66 * median))
+        upper = min(255, max(lower + 1, int(1.33 * median)))
+        edges = cv2.Canny(blurred, lower, upper)
+        if edges is None or edges.size == 0:
+            return None
+        minimum_horizontal = max(8, int(round(width * 0.10)))
+        minimum_vertical = max(4, int(round(height * 0.04)))
+        lines = cv2.HoughLinesP(
+            edges,
+            1,
+            np.pi / 180,
+            threshold=max(6, min(minimum_horizontal, minimum_vertical)),
+            minLineLength=min(minimum_horizontal, minimum_vertical),
+            maxLineGap=max(2, int(round(min(width, height) * 0.02))),
+        )
+    except cv2.error as error:
+        raise RuntimeError(f"OpenCV scale-bar detection failed: {error}") from error
+    except MemoryError as error:
+        raise RuntimeError("Not enough memory to detect the scale bar") from error
+
     if lines is None:
         return None
+    line_values = np.asarray(lines)
+    if line_values.size == 0:
+        return None
+    if line_values.size % 4:
+        raise RuntimeError("OpenCV returned invalid scale-bar line data")
+    line_values = line_values.reshape(-1, 4)
+    if len(line_values) > 20_000:
+        raise RuntimeError(
+            "Scale-bar ROI produced too many line candidates. Crop more tightly."
+        )
 
     horizontal_lines = []
     vertical_lines = []
-    for x1, y1, x2, y2 in np.asarray(lines).reshape(-1, 4):
+    for x1, y1, x2, y2 in line_values:
         dx = abs(int(x2) - int(x1))
         dy = abs(int(y2) - int(y1))
         if dx >= minimum_horizontal and dy <= max(2, int(round(dx * 0.05))):
@@ -135,7 +199,8 @@ def detect_horizontal_scale_bar(image):
 
     endpoint_tolerance = max(4.0, width * 0.025)
     intersection_tolerance = max(3.0, height * 0.025)
-    brackets = []
+    best_bracket = None
+    tested_combinations = 0
     for horizontal_left, horizontal_right, horizontal_y in horizontal_lines:
         endpoint_matches = []
         for endpoint_x in (horizontal_left, horizontal_right):
@@ -148,6 +213,11 @@ def detect_horizontal_scale_bar(image):
             ]
             endpoint_matches.append(matches)
 
+        tested_combinations += len(endpoint_matches[0]) * len(endpoint_matches[1])
+        if tested_combinations > 1_000_000:
+            raise RuntimeError(
+                "Scale-bar ROI is too complex to analyze safely. Crop more tightly."
+            )
         for left_vertical in endpoint_matches[0]:
             for right_vertical in endpoint_matches[1]:
                 left_x, right_x = sorted((left_vertical[0], right_vertical[0]))
@@ -161,19 +231,74 @@ def detect_horizontal_scale_bar(image):
                 )
                 vertical_support = min(left_vertical[3], right_vertical[3]) / max(height, 1)
                 lower_preference = horizontal_y / max(height - 1, 1)
-                # Endpoint geometry is dominant. Position is a preference and
-                # horizontal length is deliberately not the selection rule.
                 score = 5.0 * alignment + 3.0 * vertical_support + lower_preference
-                brackets.append(
-                    (score, pixel_length, left_x, right_x, horizontal_y)
-                )
+                bracket = (score, pixel_length, left_x, right_x, horizontal_y)
+                if best_bracket is None or bracket[0] > best_bracket[0]:
+                    best_bracket = bracket
 
-    if not brackets:
+    if best_bracket is None:
         return None
-    _score, pixel_length, left_x, right_x, horizontal_y = max(
-        brackets, key=lambda bracket: bracket[0]
-    )
+    _score, pixel_length, left_x, right_x, horizontal_y = best_bracket
     return pixel_length, ((left_x, horizontal_y), (right_x, horizontal_y))
+
+
+def _scale_detection_worker(width, height, rgb_bytes, connection):
+    """Run native OpenCV detection in an isolated process."""
+    try:
+        cv2.setNumThreads(1)
+        image = Image.frombytes("RGB", (width, height), rgb_bytes)
+        connection.send(("ok", detect_horizontal_scale_bar(image)))
+    except BaseException as error:
+        try:
+            connection.send(("error", f"{type(error).__name__}: {error}"))
+        except BaseException:
+            pass
+    finally:
+        connection.close()
+
+
+def detect_horizontal_scale_bar_safe(image, timeout_seconds=20.0):
+    """Detect a scale bar without exposing the web-server process to native crashes."""
+    rgb = _validated_scale_detection_rgb(image)
+    height, width = rgb.shape[:2]
+
+    import multiprocessing
+
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_scale_detection_worker,
+        args=(width, height, rgb.tobytes(), sender),
+        daemon=True,
+    )
+    process_started = False
+    try:
+        process.start()
+        process_started = True
+        sender.close()
+        if not receiver.poll(timeout_seconds):
+            raise TimeoutError(
+                "Scale-bar detection timed out. Crop more tightly around the scale bar."
+            )
+        try:
+            status, payload = receiver.recv()
+        except EOFError as error:
+            raise RuntimeError(
+                "The OpenCV scale-bar detector stopped unexpectedly. "
+                "Try a smaller, tighter ROI."
+            ) from error
+        if status == "error":
+            raise RuntimeError(f"Scale-bar detection failed: {payload}")
+        return payload
+    finally:
+        receiver.close()
+        if not process_started:
+            sender.close()
+        else:
+            process.join(timeout=0.5)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=1.0)
 
 
 def length_to_micrometers(value, unit):
@@ -362,3 +487,21 @@ def selected_particle_image(image, particles, particle_id):
         center = tuple(int(value) for value in particle["center"])
         cv2.circle(annotated, center, 8, (255, 255, 0), 3)
     return Image.fromarray(annotated, mode="RGB")
+
+
+def particle_at_point(particles, x, y):
+    """Return the one-based ID of the smallest particle containing ``(x, y)``.
+
+    This mirrors the desktop selection rule: contours are tested in original-image
+    coordinates, and overlap is resolved by choosing the matching particle with the
+    smallest measured area. ``None`` is returned when the point is outside every
+    detected contour.
+    """
+    image_point = (float(x), float(y))
+    matching_particles = []
+    for particle_id, particle in enumerate(particles, start=1):
+        if cv2.pointPolygonTest(particle["contour"], image_point, False) >= 0:
+            matching_particles.append((particle["area"], particle_id))
+
+    smallest_match = min(matching_particles, default=None)
+    return smallest_match[1] if smallest_match is not None else None
