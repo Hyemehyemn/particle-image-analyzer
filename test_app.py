@@ -1,20 +1,20 @@
 import streamlit as st
+from PIL import Image
+import io
 
-from streamlit_app import (
-    initialize_state,
-    render_calibration_panel,
-    render_formula_panel,
-    render_decimal_panel,
-)
+from analyzer_core import segment_particles
 
-st.set_page_config(page_title="Test", layout="wide")
+st.title("Segmentation test")
 
-initialize_state()
+uploaded = st.file_uploader("Upload image")
 
-st.title("Test")
+if uploaded is not None:
+    data = uploaded.getvalue()
+    image = Image.open(io.BytesIO(data)).convert("RGB")
 
-render_calibration_panel()
-render_formula_panel()
-render_decimal_panel()
+    st.image(image)
 
-st.write("Reached the end")
+    if st.button("Test segmentation"):
+        st.write("Starting segmentation...")
+        mask = segment_particles(image)
+        st.write("Segmentation finished")
