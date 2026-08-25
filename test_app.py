@@ -1,6 +1,6 @@
 import streamlit as st
-import cv2
+import analyzer_core
 
 st.title("Test")
 st.write("App is running")
-st.write("OpenCV:", cv2.__version__)
+st.write("analyzer_core imported successfully")
