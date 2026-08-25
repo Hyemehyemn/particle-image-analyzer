@@ -1,6 +1,7 @@
 import streamlit as st
-import analyzer_core
+from streamlit_cropper import st_cropper
+from streamlit_image_coordinates import streamlit_image_coordinates
 
 st.title("Test")
 st.write("App is running")
-st.write("analyzer_core imported successfully")
+st.write("Both components imported successfully")
