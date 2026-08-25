@@ -2,9 +2,10 @@ import streamlit as st
 from PIL import Image
 import io
 
-from streamlit_app import analyze_image, dataframe_for_display
+from streamlit_app import analyze_image
+from analyzer_core import selected_particle_image
 
-st.title("Dataframe test")
+st.title("Selected particle image test")
 
 uploaded = st.file_uploader("Upload image")
 
@@ -23,21 +24,12 @@ if uploaded is not None:
         st.write("Analysis finished")
         st.write("Particles:", result["particle_count"])
 
-        df = dataframe_for_display(
-            result["rows"],
-            result["calibrated"],
-            []
+        display_image = selected_particle_image(
+            image,
+            result["particles"],
+            None
         )
 
-        st.write("Dataframe created")
-
-        st.dataframe(
-            df,
-            width="stretch",
-            height=420,
-            hide_index=True,
-            on_select="rerun",
-            selection_mode="single-row",
-        )
-
-        st.write("Dataframe finished")
+        st.write("Selected particle image finished")
+        st.image(display_image)
+        
