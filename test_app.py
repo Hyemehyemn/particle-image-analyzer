@@ -2,6 +2,7 @@ import streamlit as st
 
 from streamlit_app import (
     initialize_state,
+    render_calibration_panel,
     render_formula_panel,
     render_decimal_panel,
 )
@@ -12,6 +13,7 @@ initialize_state()
 
 st.title("Test")
 
+render_calibration_panel()
 render_formula_panel()
 render_decimal_panel()
 
