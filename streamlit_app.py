@@ -148,11 +148,10 @@ def analyze_image(
         "particles": particles,
         "rows": rows,
         "particle_count": len(particles),
-        "annotated_image": annotate_particles(image, particles),
+        "annotated_image": None,
         "calibrated": length_scale is not None,
         "formula_errors": sorted(formula_errors),
     }
-
 
 
 def display_headers(calibrated: bool, formulas: list[dict]) -> dict[str, str]:
