@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 from pathlib import Path
 import zipfile
 
@@ -14,7 +15,6 @@ import pandas as pd
 from PIL import Image, ImageDraw
 import streamlit as st
 from streamlit_cropper import st_cropper
-from streamlit_image_coordinates import streamlit_image_coordinates
 
 from analyzer_core import (
     annotate_particles,
@@ -22,7 +22,6 @@ from analyzer_core import (
     evaluate_custom_formula,
     find_particles,
     length_to_micrometers,
-    particle_at_point,
     particle_formula_variables,
     particle_measurements,
     segment_particles,
@@ -56,12 +55,9 @@ def initialize_state() -> None:
         "recognition_name": None,
         "single_result": None,
         "single_selected_particle_id": None,
-        "single_last_image_click": None,
-        "single_last_table_selection": (),
         "calibration_key": None,
         "calibration_image": None,
         "pending_detection": None,
-        "detected_pixel_length_input": None,
         "micrometers_per_pixel": None,
         "calibration_pixel_length": None,
         "calibration_source": None,
@@ -276,7 +272,6 @@ def render_calibration_panel() -> None:
         st.session_state.calibration_key = calibration_key
         st.session_state.calibration_image = image
         st.session_state.pending_detection = None
-        st.session_state.detected_pixel_length_input = None
         st.session_state.micrometers_per_pixel = None
         st.session_state.calibration_pixel_length = None
         st.session_state.calibration_source = None
@@ -305,7 +300,6 @@ def render_calibration_panel() -> None:
         detection = detect_horizontal_scale_bar(image.crop((left, top, right, bottom)))
         if detection is None:
             st.session_state.pending_detection = None
-            st.session_state.detected_pixel_length_input = None
             st.error(
                 "No bracket scale bar found. The ROI must contain one horizontal line "
                 "with a vertical line at both endpoints."
@@ -321,7 +315,6 @@ def render_calibration_panel() -> None:
                 "endpoints": endpoints,
                 "roi": {"left": left, "top": top, "width": right-left, "height": bottom-top},
             }
-            st.session_state.detected_pixel_length_input = float(pixel_length)
 
     pending = st.session_state.pending_detection
     if pending:
@@ -330,20 +323,16 @@ def render_calibration_panel() -> None:
             caption="Detected bracket: magenta bar with yellow endpoints",
             width="stretch",
         )
-        st.caption(
-            f'Automatically detected length: {pending["pixel_length"]:.15g} px'
-        )
-        edited_pixel_length = st.number_input(
-            "Scale-bar pixel length (editable)",
-            min_value=0.000000000001,
-            step=1.0,
-            format="%.15g",
-            key="detected_pixel_length_input",
-            help="Review the detected length and edit it before applying calibration.",
-        )
+        st.metric("Detected scale-bar length", f'{pending["pixel_length"]:.6g} px')
+        replacing_manual = st.session_state.calibration_source == "manual"
+        replace_manual = True
+        if replacing_manual:
+            replace_manual = st.checkbox(
+                "Replace the currently accepted manual calibration with this automatic result"
+            )
         if st.button("Apply detected calibration"):
-            if edited_pixel_length is None or edited_pixel_length <= 0:
-                st.error("Scale-bar pixel length must be greater than zero.")
+            if replacing_manual and not replace_manual:
+                st.error("Confirm replacement before overwriting the manual calibration.")
                 return
             recognition = st.session_state.recognition_image
             if recognition is not None and recognition.size != image.size:
@@ -352,17 +341,39 @@ def render_calibration_panel() -> None:
                     f"calibration {image.width}×{image.height} px. Calibration was not applied."
                 )
             else:
-                applied_pixel_length = float(edited_pixel_length)
                 micrometers = length_to_micrometers(scale_value, scale_unit)
-                st.session_state.micrometers_per_pixel = (
-                    micrometers / applied_pixel_length
-                )
-                st.session_state.calibration_pixel_length = applied_pixel_length
+                st.session_state.micrometers_per_pixel = micrometers / pending["pixel_length"]
+                st.session_state.calibration_pixel_length = pending["pixel_length"]
                 st.session_state.calibration_source = "automatic"
                 st.session_state.calibration_physical_value = scale_value
                 st.session_state.calibration_unit = scale_unit
                 st.session_state.single_result = None
-                st.success("Calibration applied using the reviewed pixel length.")
+                st.success("Automatic calibration applied.")
+
+    with st.expander("Manual two-point fallback"):
+        st.caption("Enter the two endpoint coordinates in calibration-image pixels.")
+        first_col, second_col, third_col, fourth_col = st.columns(4)
+        x1 = first_col.number_input("Left X", 0.0, float(image.width), 0.0)
+        y1 = second_col.number_input("Left Y", 0.0, float(image.height), 0.0)
+        x2 = third_col.number_input("Right X", 0.0, float(image.width), float(image.width))
+        y2 = fourth_col.number_input("Right Y", 0.0, float(image.height), 0.0)
+        if st.button("Apply manual calibration"):
+            pixel_length = math.dist((x1, y1), (x2, y2))
+            if pixel_length <= 0:
+                st.error("Manual endpoints must be different.")
+            else:
+                recognition = st.session_state.recognition_image
+                if recognition is not None and recognition.size != image.size:
+                    st.error("Recognition and calibration image dimensions must match.")
+                else:
+                    micrometers = length_to_micrometers(scale_value, scale_unit)
+                    st.session_state.micrometers_per_pixel = micrometers / pixel_length
+                    st.session_state.calibration_pixel_length = pixel_length
+                    st.session_state.calibration_source = "manual"
+                    st.session_state.calibration_physical_value = scale_value
+                    st.session_state.calibration_unit = scale_unit
+                    st.session_state.single_result = None
+                    st.success("Manual calibration applied.")
 
     if st.session_state.micrometers_per_pixel is not None:
         applied_value = st.session_state.calibration_physical_value
@@ -490,8 +501,6 @@ def render_single_analysis(minimum_area: int) -> None:
         st.session_state.recognition_name = uploaded.name
         st.session_state.single_result = None
         st.session_state.single_selected_particle_id = None
-        st.session_state.single_last_image_click = None
-        st.session_state.single_last_table_selection = ()
         st.session_state.pop("single_results_table", None)
 
     calibration_image = st.session_state.calibration_image
@@ -527,8 +536,6 @@ def render_single_analysis(minimum_area: int) -> None:
             result["analysis_signature"] = analysis_signature
             st.session_state.single_result = result
             st.session_state.single_selected_particle_id = None
-            st.session_state.single_last_image_click = None
-            st.session_state.single_last_table_selection = ()
             st.session_state.pop("single_results_table", None)
 
     result = st.session_state.single_result
@@ -536,14 +543,12 @@ def render_single_analysis(minimum_area: int) -> None:
         return
 
     table_state = st.session_state.get("single_results_table", {})
-    selected_rows = tuple(table_state.get("selection", {}).get("rows", []))
-    if selected_rows != st.session_state.single_last_table_selection:
-        st.session_state.single_last_table_selection = selected_rows
-        selected_particle_id = selected_rows[0] + 1 if selected_rows else None
-        if selected_particle_id and selected_particle_id <= result["particle_count"]:
-            st.session_state.single_selected_particle_id = selected_particle_id
-        elif not selected_rows:
-            st.session_state.single_selected_particle_id = None
+    selected_rows = table_state.get("selection", {}).get("rows", [])
+    selected_particle_id = selected_rows[0] + 1 if selected_rows else None
+    if selected_particle_id and selected_particle_id <= result["particle_count"]:
+        st.session_state.single_selected_particle_id = selected_particle_id
+    else:
+        st.session_state.single_selected_particle_id = None
 
     count_col, circularity_col, aspect_col = st.columns(3)
     count_col.metric("Detected particles", result["particle_count"])
@@ -564,52 +569,20 @@ def render_single_analysis(minimum_area: int) -> None:
     st.caption(
         f"Selected particle: ID {selected_particle_id}"
         if selected_particle_id is not None
-        else "Selected particle: —"
+        else "Selected particle: — (select a table row to highlight it)"
     )
-    st.caption("Click a detected particle in the image or select its table row.")
-    click = streamlit_image_coordinates(
+    st.image(
         selected_particle_image(image, result["particles"], selected_particle_id),
-        width="content",
-        key=f"single_particle_image_{abs(hash(image_key))}",
-        cursor="crosshair",
+        caption="Annotated particle image",
+        width="stretch",
     )
-    if click:
-        click_token = click.get("unix_time", (click.get("x"), click.get("y")))
-        if click_token != st.session_state.single_last_image_click:
-            st.session_state.single_last_image_click = click_token
-            displayed_width = max(1, int(click.get("width", image.width)))
-            displayed_height = max(1, int(click.get("height", image.height)))
-            image_x = float(click["x"]) * image.width / displayed_width
-            image_y = float(click["y"]) * image.height / displayed_height
-            clicked_particle_id = particle_at_point(
-                result["particles"], image_x, image_y
-            )
-            if clicked_particle_id is not None:
-                st.session_state.single_selected_particle_id = clicked_particle_id
-                st.rerun()
     if result["formula_errors"]:
         st.warning(
             "Some custom formula values are blank:\n\n"
             + "\n\n".join(result["formula_errors"])
         )
-    results_frame = dataframe_for_display(
-        result["rows"], result["calibrated"], result["formulas"]
-    )
-    selected_particle_id = st.session_state.single_selected_particle_id
-    if selected_particle_id is not None:
-        selected_row = selected_particle_id - 1
-        results_display = results_frame.style.apply(
-            lambda row: [
-                "background-color: #ff00ff; color: #ffffff; font-weight: bold"
-                if row.name == selected_row else ""
-                for _value in row
-            ],
-            axis=1,
-        )
-    else:
-        results_display = results_frame
     st.dataframe(
-        results_display,
+        dataframe_for_display(result["rows"], result["calibrated"], result["formulas"]),
         width="stretch",
         height=420,
         hide_index=True,

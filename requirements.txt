@@ -4,4 +4,3 @@ opencv-python-headless>=4.8
 pandas>=2.0
 streamlit>=1.40
 streamlit-cropper>=0.2.2
-streamlit-image-coordinates>=0.4.1
