@@ -641,12 +641,7 @@ def render_single_analysis(minimum_area: int) -> None:
         file_name=f"{Path(result['image_name']).stem}_particles.csv",
         mime="text/csv",
     )
-    second.download_button(
-        "Download annotated image",
-        image_png_bytes(result["annotated_image"]),
-        file_name=f"{Path(result['image_name']).stem}_annotated.png",
-        mime="image/png",
-    )
+
 
 
 def render_batch_analysis(minimum_area: int) -> None:
